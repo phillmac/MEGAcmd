@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Fixed-purpose, rootless, gentle stop of ONLY the PSA-mitigated MEGAcmd container.
+# Install at ~/.local/libexec/megacmd-psa-graceful-stop for the Quadlet ExecStop.
+# A failed graceful stop is reported; caller must decide on forced recovery.
+set -euo pipefail
+if (($# != 0)); then echo "no arguments allowed" >&2; exit 2; fi
+name=megacmd-psa-27
+if ! podman container exists "$name"; then exit 0; fi
+if ! podman exec --env HOME=/home/almalinux "$name" \
+    /opt/megacmd-psa-full-release/mega-exec exit; then
+    echo "MEGAcmd did not acknowledge the shutdown request" >&2
+    exit 1
+fi
+for n in $(seq 1 55); do
+    if ! podman container exists "$name"; then
+        echo "MEGAcmd stopped gracefully"
+        exit 0
+    fi
+    if test "$(podman inspect --format '{{.State.Running}}' "$name" 2>/dev/null || echo false)" != true; then
+        echo "MEGAcmd process exited; Podman can clean up"
+        exit 0
+    fi
+    sleep 1
+done
+echo "MEGAcmd still running after graceful shutdown request; NOT issuing SIGKILL" >&2
+exit 1

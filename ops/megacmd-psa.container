@@ -1,0 +1,49 @@
+# Rootless Podman Quadlet -- REVIEW-ONLY, never enable against a live MEGA daemon.
+# Requires authenticated data quiescence and a consistent backup before installation.
+# The image was built from the patched 2.7 full-media Release bundle.
+# Generate/inspect with QUADLET_UNIT_DIRS=... quadlet -user -dryrun.
+[Unit]
+Description=MEGAcmd PSA-mitigated 2.7 (manual cutover only)
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsDirectory=%h/.megaCmd
+
+[Container]
+Image=localhost/megacmd-psa-alma10-runtime:2.7
+ContainerName=megacmd-psa-27
+Pull=never
+# Keep the existing host MEGA session/cache and Unix socket at %h/.megaCmd.
+# Rootless container UID 0 maps to the invoking host user. Do NOT use :Z/:z
+# on production .megaCmd: SELinux relabel could break host-native rollback.
+Volume=%h/.megaCmd:/home/almalinux/.megaCmd:rw
+Environment=HOME=/home/almalinux
+WorkingDir=/home/almalinux
+# This disables container SELinux label confinement; rootless Podman, drop all
+# caps, read-only rootfs and no-new-privileges remain. Review before cutover.
+SecurityLabelDisable=true
+NoNewPrivileges=true
+DropCapability=ALL
+ReadOnly=true
+Tmpfs=/tmp:rw,nosuid,nodev,size=256m
+Tmpfs=/run:rw,nosuid,nodev,size=16m
+Memory=4g
+PidsLimit=512
+StopSignal=SIGTERM
+StopTimeout=60
+LogDriver=journald
+# Monitor health; intentionally NO HealthOnFailure=kill and no auto-restart.
+# A queue-aware human recovery decision is required if requests stop responding.
+HealthCmd=/opt/megacmd-psa-full-release/mega-exec version
+HealthInterval=60s
+HealthTimeout=8s
+HealthRetries=3
+HealthStartPeriod=45s
+
+[Service]
+# One-time host installation required before activation; see README.
+# Asks the server to exit and waits for cache-safe shutdown before Podman rm.
+ExecStop=%h/.local/libexec/megacmd-psa-graceful-stop
+Restart=no
+TimeoutStopSec=80s
+
+# No [Install] / WantedBy: placing the file must never auto-enable this service.
