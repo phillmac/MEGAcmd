@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Safely verify an already-running MEGAcmd server using an exact relocated
+# legacy mega-exec binary without its automatic native-server spawn fallback.
+#
+# PREPARE: ./megacmd-psa-safe-legacy-client --setup
+# CHECK:   ./megacmd-psa-safe-legacy-client version
+#
+# Never use the native /usr/bin/mega-exec directly during a socket handoff:
+# when its initial socket connect fails, it forks /usr/bin/mega-cmd-server.
+set -euo pipefail
+umask 077
+
+if [[ "$(id -un)" != "almalinux" || "$HOME" != "/home/almalinux" ]]; then
+    echo "Refusing wrong user or HOME" >&2
+    exit 11
+fi
+guard_root="$HOME/.local/state/megacmd-psa-safe-legacy-client"
+source_binary=/usr/bin/mega-exec
+expected_sha=51d9e05b29ae55dd9a0ced17fcc9903275bc2680a9aea587ae68f91757c6526e
+copy="$guard_root/bin/mega-exec"
+stub="$guard_root/bin/mega-cmd-server"
+empty_path="$guard_root/empty-path"
+socket="$HOME/.megaCmd/megacmd.socket"
+
+if [[ "${1:-}" == "--setup" && $# == 1 ]]; then
+    [[ ! -L "$guard_root" ]] || { echo "Refusing symlinked guard root" >&2; exit 12; }
+    mkdir -p -m 0700 "$guard_root/bin" "$empty_path"
+    [[ ! -L "$guard_root/bin" && ! -L "$empty_path" ]] || exit 13
+    actual_sha=$(sha256sum "$source_binary" | cut -d' ' -f1)
+    [[ "$actual_sha" == "$expected_sha" ]] || { echo "Legacy client hash mismatch" >&2; exit 14; }
+    cp -- "$source_binary" "$copy"
+    chmod 0700 "$copy"
+    cat >"$stub" <<'SH'
+#!/bin/sh
+# Inert fallback to prevent any automatic native daemon launch.
+exit 126
+SH
+    chmod 0700 "$stub"
+    echo "Guarded legacy client is ready; no MEGA daemon was started"
+    exit 0
+fi
+
+if [[ $# -lt 1 ]]; then
+    echo "Usage: $0 --setup | version | help | whoami | transfers | ls /remote-path" >&2
+    exit 15
+fi
+case "$1" in
+    version|help|whoami|transfers)
+        [[ $# -eq 1 ]] || exit 16 ;;
+    ls)
+        [[ $# -eq 2 && "$2" == /* ]] || exit 17 ;;
+    *)
+        echo "Refusing potentially mutating command" >&2
+        exit 18 ;;
+esac
+[[ -x "$copy" && -x "$stub" && -d "$empty_path" ]] || { echo "Run --setup first" >&2; exit 19; }
+[[ ! -L "$copy" && ! -L "$stub" ]] || exit 20
+[[ "$(sha256sum "$copy" | cut -d' ' -f1)" == "$expected_sha" ]] || exit 21
+
+# Probe raw Unix socket before invoking mega-exec. This does not create any
+# MEGA command or spawn a server; it is useful while the SDK cache initialises.
+if ! /usr/bin/python3 - "$socket" <<'PY'
+import socket
+import sys
+
+path = sys.argv[1]
+if len(path.encode("utf-8")) >= 108:
+    print("Unix socket pathname exceeds Linux sockaddr_un limit", file=sys.stderr)
+    sys.exit(75)
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(2)
+try:
+    s.connect(path)
+except (OSError, TimeoutError):
+    sys.exit(75)
+finally:
+    s.close()
+PY
+then
+    echo "Socket not accepting; refusing to start any MEGA client" >&2
+    exit 75
+fi
+
+# In the small remaining connect/readiness race, the stock client will fork
+# only our inert fallback script, never /usr/bin/mega-cmd-server:
+# PATH is intentionally empty and /proc/self/exe resolves to the copied client.
+exec /usr/bin/timeout --signal=TERM --kill-after=2s 20s /usr/bin/env -i \
+    HOME=/home/almalinux USER=almalinux LOGNAME=almalinux LANG=C.UTF-8 \
+    PATH="$empty_path" "$copy" "$@"

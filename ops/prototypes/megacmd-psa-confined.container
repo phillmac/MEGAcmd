@@ -33,7 +33,10 @@ PidsLimit=512
 StopSignal=SIGTERM
 StopTimeout=60
 LogDriver=journald
-HealthCmd=/opt/megacmd-psa-full-release/mega-exec version
+# Passive readiness probe. Never invoke mega-exec here: the client may fork
+# a second server while the main server's 1.24 GiB SDK cache is starting.
+# This probes a real Unix accept(), not merely a stale socket inode.
+HealthCmd=/usr/bin/python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect('/home/almalinux/.megaCmd/megacmd.socket'); s.close()"
 HealthInterval=60s
 HealthTimeout=8s
 HealthRetries=3
