@@ -48,6 +48,20 @@ The Quadlet intentionally uses `HOME=/home/almalinux` and binds host `%h/.megaCm
 
 The matching source tree at commit `03817503` completed real SDK HTTP `gpsa` stall, disconnect/retry and late-response acceptance testing in the guest. The **full media-enabled Release build** from that source retained no test-only instrumentation and passed shared-library inspection. Its bundled image was loaded into the guest, and the real systemd user service start/health/stop test passed again under SELinux enforcing. New runtime image SHA-256/ID: `30a9dd610b790408519029299aec8ec544f5134ff9f6b36ac07164576ce03809`.
 
+## Authenticated disposable-account acceptance (7 November 2026)
+
+Performed in a **separate** temporary AlmaLinux 10.2 guest, using an explicitly created empty test account. The account email, password, MFA and session tokens are **not in this repository**. The user authenticated through a private interactive SSH terminal, not through ChatGPT tool arguments, environment variables, shell history or source control.
+
+- The guest used a fresh 24 GiB sparse overlay, SELinux **enforcing**, a rootless patched 2.7.0 Quadlet, private host-loopback SSH access, a guest-local nftables outbound restriction, **no swap**, and a **512 MiB tmpfs at `~/.megaCmd`**. A clean QCOW2 snapshot was taken **before** the account was authenticated. The tmpfs is intentionally destroyed on VM reboot.
+- Authenticated `whoami` matched the dedicated test account without printing credentials; remote `ls /` passed.
+- **Normal transfer:** a 64 KiB random file was uploaded to a uniquely named test folder, downloaded and verified by SHA-256. The remote folder and both local test files were removed.
+- **Network outage:** public HTTPS was dropped by a guest-only nftables table. Six local `version` and three `psa` client requests remained responsive. A root-owned systemd fallback timer was scheduled before injecting the fault; the table was removed manually and the timer cancelled after successful restoration. MEGA's live `gpsa` endpoint and authenticated remote listing worked again.
+- **Service restart with live session:** a normal `systemctl --user restart` changed the server PID but preserved the session in tmpfs. Authenticated `whoami`, remote listing and container health checks passed on the replacement process.
+- **Queued transfer during an outage:** a 256 KiB random file was queued while HTTPS was blocked. After reconnecting, the upload appeared, downloading it reproduced the SHA-256, and the unique test folder and both local files were removed. No duplicate test file was observed.
+- All transfer operations used bounded commands; no production session, remote archive, Library or OpenArt task was accessed.
+
+These results verify small-object authentication, command responsiveness, queued-upload recovery and session reuse across a **service restart**. They do **not** demonstrate uninterrupted large transfers, arbitrary network partitions, rollover during a server reboot, quota-exhaustion handling, or backward compatibility with an existing production 2.5.2 cache and transfer journal. The proposed runtime still has the explicit SELinux isolation tradeoff described below.
+
 ## Deliberate security and operational choices
 
 - **No automatic installation or enablement.** The checked-in Quadlet has no [Install]/WantedBy section. Never copy it onto the jump box while the old daemon is still active.
@@ -80,4 +94,4 @@ The matching source tree at commit `03817503` completed real SDK HTTP `gpsa` sta
 
 ## Known open gates
 
-The full user-manager activation/stop gate and **anonymous real SDK `gpsa` HTTP stall/drop/late-response tests** have passed on the disposable VM; no MEGA account was used. Still outstanding: **authenticated** session/transfer testing, review of the SELinux-label-disabling tradeoff, and a documented, validated cache/queue cutover with rollback. The PSA mitigation is not a general-purpose SDK deadlock fix. The separate `psa --discard` synchronous request and orphaned archive `mega-exec` clients are not resolved by this change.
+The real user-manager activation/stop gate, accountless SDK HTTP stall/drop/late-response tests and **small authenticated transfer/network-recovery tests** have passed in disposable VMs. Remaining production gates: review the SELinux-label-disabling tradeoff; reconcile existing production backup/Library/OpenArt authoritative journals; rehearse a live-cache and old-RPM rollback; obtain explicit maintenance approval. The PSA mitigation is not a general-purpose SDK deadlock fix. The separate `psa --discard` synchronous request and orphaned archive `mega-exec` clients remain out of scope.
