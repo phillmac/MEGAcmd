@@ -21,6 +21,7 @@
 
 #include <mega.h>
 #include <ctime>
+#include <atomic>
 #include <string>
 #include <future>
 #include "megacmdexecuter.h"
@@ -99,8 +100,10 @@ private:
 public:
     NodesCurrentPromise mNodesCurrentPromise;
 
-    ::mega::m_time_t timeOfPSACheck;
-    int lastPSAnumreceived;
+    // PSA callbacks arrive on SDK threads; commands and login/logout run
+    // concurrently. These values must not be non-atomic shared state.
+    std::atomic<::mega::m_time_t> timeOfPSACheck{0};
+    std::atomic<int> lastPSAnumreceived{-1};
 
     int storageStatus;
     long long receivedStorageSum;

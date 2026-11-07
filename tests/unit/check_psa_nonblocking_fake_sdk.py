@@ -18,6 +18,7 @@ function = executer[start:end]
 
 stub = r"""
 #include "psa_async_gate.h"
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <ctime>
@@ -85,8 +86,8 @@ struct MegaApi {
     ~MegaApi() { delete listener; }
 };
 struct MegaCmdSandbox {
-    m_time_t timeOfPSACheck=0;
-    int lastPSAnumreceived=0;
+    std::atomic<m_time_t> timeOfPSACheck{0};
+    std::atomic<int> lastPSAnumreceived{0};
 };
 std::string notification;
 void informStateListener(const string& s, int) { notification=s; }

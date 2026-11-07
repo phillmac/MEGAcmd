@@ -1090,7 +1090,8 @@ bool MegaCmdExecuter::checkAndInformPSA(std::optional<int> clientID, bool enforc
                     if (error->getErrorCode() == MegaError::API_ENOENT)
                     {
                         LOG_verbose << "No new PSA available";
-                        sandbox->lastPSAnumreceived = max(0, sandbox->lastPSAnumreceived);
+                        sandbox->lastPSAnumreceived.store(
+                            max(0, sandbox->lastPSAnumreceived.load()));
                     }
                     else if (error->getErrorCode() == MegaError::API_OK)
                     {
