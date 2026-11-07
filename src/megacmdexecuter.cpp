@@ -31,6 +31,8 @@
 #include "sync_ignore.h"
 #include "megacmd_fuse.h"
 
+#include <algorithm>
+#include <cctype>
 #include <iomanip>
 #include <limits>
 #include <string>
@@ -1037,6 +1039,14 @@ bool MegaCmdExecuter::decryptLinkIfEncrypted(MegaApi *api, std::string &publicLi
 
 bool MegaCmdExecuter::checkAndInformPSA(std::optional<int> clientID, bool enforce)
 {
+    // Automatic checks are optional for unattended/headless servers. Explicit
+    // `psa` requests use enforce=true and always bypass this policy.
+    // Default OFF avoids PSA network waits on new installations.
+    if (!enforce && !ConfigurationManager::getConfigurationValue("autoPsaFetch", false))
+    {
+        return false;
+    }
+
     const m_time_t now = m_time();
     if (!enforce && now - sandboxCMD->timeOfPSACheck <= 86400)
     {
@@ -8255,6 +8265,41 @@ void MegaCmdExecuter::executecommand(vector<string> words, map<string, int> *clf
     }
     else if (words[0] == "psa")
     {
+        const string autoSetting = getOption(cloptions, "auto", "");
+        if (cloptions->count("auto"))
+        {
+            // Configuration-only commands do not issue an SDK request. Users
+            // can still fetch manually with plain 'psa' when auto fetch is OFF.
+            if (getFlag(clflags, "discard"))
+            {
+                setCurrentThreadOutCode(MCMD_EARGS);
+                LOG_err << "--auto and --discard cannot be combined";
+                return;
+            }
+
+            string mode = autoSetting;
+            transform(mode.begin(), mode.end(), mode.begin(),
+                      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (mode == "on" || mode == "off")
+            {
+                const bool enabled = mode == "on";
+                ConfigurationManager::savePropertyValue("autoPsaFetch", enabled);
+                OUTSTREAM << "Automatic PSA fetching " << (enabled ? "enabled" : "disabled") << endl;
+            }
+            else if (mode == "query")
+            {
+                OUTSTREAM << "Automatic PSA fetching "
+                          << (ConfigurationManager::getConfigurationValue("autoPsaFetch", false)
+                                  ? "enabled" : "disabled") << endl;
+            }
+            else
+            {
+                setCurrentThreadOutCode(MCMD_EARGS);
+                LOG_err << "Use --auto=ON, --auto=OFF, or --auto=query";
+            }
+            return;
+        }
+
         int psanum = sandboxCMD->lastPSAnumreceived;
 
 #ifndef NDEBUG

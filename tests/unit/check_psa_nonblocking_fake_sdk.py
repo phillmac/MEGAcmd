@@ -38,6 +38,12 @@ static std::ostringstream sink;
 #define LOG_warn sink
 namespace megacmd {
 using ::m_time; using ::m_time_t;
+struct ConfigurationManager {
+    static bool autoPsaFetch;
+    template<typename T>
+    static T getConfigurationValue(const char*, T) { return static_cast<T>(autoPsaFetch); }
+};
+bool ConfigurationManager::autoPsaFetch = false;
 struct MegaUser {};
 struct MegaError {
     static constexpr int API_OK = 0;
@@ -106,7 +112,10 @@ int main()
     MegaApi api;
     MegaCmdSandbox sandbox;
     MegaCmdExecuter exec(api,sandbox);
-    assert(exec.checkAndInformPSA(std::nullopt));
+    // Default OFF: no automatic SDK request, but explicit fetch still works.
+    assert(!exec.checkAndInformPSA(std::nullopt));
+    assert(api.submitted==0);
+    assert(exec.checkAndInformPSA(std::nullopt, true));
     assert(api.submitted==1);
     assert(notification.empty()); // Does not synchronously wait for callback.
     assert(!exec.checkAndInformPSA(3, true)); // No unbounded listener growth.
@@ -115,6 +124,20 @@ int main()
     assert(sandbox.lastPSAnumreceived==77);
     assert(notification.find("Example")!=string::npos);
     notification.clear();
+
+    // Enabling immediately admits the normal, non-forced startup path.
+    ConfigurationManager::autoPsaFetch = true;
+    sandbox.timeOfPSACheck = 0;
+    assert(exec.checkAndInformPSA(std::nullopt));
+    assert(api.submitted==2);
+    api.completePSA(MegaError::API_ENOENT);
+    assert(notification.empty());
+
+    // Disabling it again does not suppress explicit manual requests.
+    ConfigurationManager::autoPsaFetch = false;
+    sandbox.timeOfPSACheck = 0;
+    assert(!exec.checkAndInformPSA(std::nullopt));
+    assert(api.submitted==2);
     assert(exec.checkAndInformPSA(std::nullopt,true));
     api.completePSA(MegaError::API_ENOENT);
     assert(notification.empty());
