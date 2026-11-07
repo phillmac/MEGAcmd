@@ -1,0 +1,121 @@
+# PSA mitigation full-media Release build/packaging validation.
+# This is NOT a production installation image. Use --target build; never run
+# with the production HOME/session or MEGA account credentials.
+#
+# Repro: podman build -f build-with-docker/Dockerfile.psa-full-release \
+#   --target build --build-arg BUILD_CORES=2 --memory=12g --memory-swap=12g \
+#   -t localhost/megacmd-psa-full-release-linked:2.7 .
+#
+# The runtime bundle in /opt/megacmd-psa-full-release contains the server,
+# clients, and vcpkg-shared FFmpeg libraries; LD_LIBRARY_PATH is set inside
+# this isolated build target. This is not an RPM or supervised system service.
+
+# syntax=docker/dockerfile:1
+
+FROM debian:12-slim as base
+
+RUN rm -f /etc/apt/apt.conf.d/docker-clean; \
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends \
+    cmake zip pkg-config curl python3 python3-pip autoconf-archive nasm git g++ uuid-runtime zstd fuse \
+    && python3 -m pip install unittest-xml-reporting pexpect --break-system-packages
+
+RUN if [ ! -e /etc/machine-id ]; then \
+        uuidgen > /etc/machine-id; \
+    fi
+
+FROM base as build-deps-cmake
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y --no-install-recommends \
+    ccache jq \
+    cmake zip pkg-config curl python3 autoconf-archive nasm libgtest-dev libgmock-dev git g++ make unzip autoconf  ca-certificates automake ninja-build \
+    libfuse-dev libtool
+
+COPY vcpkg.json ./vcpkg.json
+COPY build/clone_vcpkg_from_baseline.sh ./clone_vcpkg_from_baseline.sh
+RUN /clone_vcpkg_from_baseline.sh /vcpkg
+
+FROM scratch as src
+
+WORKDIR /usr/src/megacmd
+COPY sdk ./sdk
+COPY src ./src
+COPY build ./build
+COPY contrib ./contrib
+COPY tests/common ./tests/common
+COPY tests/integration ./tests/integration
+COPY tests/unit ./tests/unit
+COPY CMakeLists.txt ./CMakeLists.txt
+COPY vcpkg.json ./vcpkg.json
+
+FROM build-deps-cmake as build
+LABEL stage=autocleanable-intermediate-stage
+WORKDIR /usr/src/megacmd
+
+# setting ccache as env variables breaks latest vcpkg libsodium compilation
+#ENV CC "ccache gcc-12"
+#ENV CXX "ccache g++-12"
+ENV CCACHE_DIR=/tmp/ccache
+ENV VCPKG_DEFAULT_BINARY_CACHE=/tmp/vcpkgcache
+ENV VCPKG_BINARY_SOURCES="clear;files,/tmp/vcpkgcache,readwrite"
+ARG ENABLE_asan=OFF
+ARG ENABLE_ubsan=OFF
+ARG ENABLE_tsan=OFF
+ARG ENABLE_MEGACMD_TESTS=ON
+ARG BUILD_CORES
+
+COPY --from=src /usr/src/megacmd /usr/src/megacmd
+
+#We don't wont a potential config coming from host machine to meddle with the build:
+RUN rm ./sdk/include/mega/config.h || true
+
+RUN --mount=type=cache,target=/tmp/ccache \
+    --mount=type=cache,target=/tmp/vcpkgcache \
+    --mount=type=tmpfs,target=/tmp/build \
+     VCPKG_MAX_CONCURRENCY=${BUILD_CORES:-$(nproc)} \
+     flock -w 7200 /tmp/vcpkgcache/.vcpkg-install.lock \
+     cmake -B /tmp/build \
+    -DVCPKG_ROOT=/vcpkg \
+    -DCMAKE_CXX_COMPILER=g++ \
+    -DCMAKE_C_COMPILER=gcc \
+    -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_VERBOSE_MAKEFILE=ON \
+    -DENABLE_ASAN=${ENABLE_asan} \
+    -DENABLE_UBSAN=${ENABLE_ubsan} \
+    -DENABLE_TSAN=${ENABLE_tsan} \
+    -DENABLE_MEGACMD_TESTS=OFF \
+    -DFULL_REQS=ON \
+    -DUSE_FREEIMAGE=ON \
+    -DUSE_FFMPEG=ON \
+    -DUSE_PDFIUM=ON \
+    -DENABLE_MEDIA_FILE_METADATA=ON \
+    -DUSE_MEDIAINFO=ON \
+    -DWITH_FUSE=ON \
+    && cmake --build /tmp/build -j${BUILD_CORES:-$(nproc)} --target mega-cmd-server mega-exec mega-cmd \
+    && mkdir -p /opt/megacmd-psa-full-release/lib \
+    && cp /tmp/build/mega-cmd-server /tmp/build/mega-exec /tmp/build/mega-cmd /opt/megacmd-psa-full-release/ \
+    && cp -a /tmp/build/vcpkg_installed/x64-linux-mega/lib/*.so* /opt/megacmd-psa-full-release/lib/ \
+    && test -x /opt/megacmd-psa-full-release/mega-cmd-server \
+    && test -x /opt/megacmd-psa-full-release/mega-exec \
+    && test -z "$(LD_LIBRARY_PATH=/opt/megacmd-psa-full-release/lib ldd /opt/megacmd-psa-full-release/mega-cmd-server | grep 'not found')"
+
+ENV LD_LIBRARY_PATH=/opt/megacmd-psa-full-release/lib
+
+FROM base as final
+
+COPY --from=build /usr/bin/mega* /usr/bin/
+COPY --from=build /opt/megacmd /opt/megacmd
+COPY --chmod=555 tests/*.py /usr/local/bin/
+#COPY --from=build /inspectme /inspectme
+
+# Integration tests that use fuse will requiere uid and gid 1001
+RUN groupadd -g 1001 jenkins && useradd jenkins -u 1001 -g 1001 -m -s /bin/bash
