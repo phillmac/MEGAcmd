@@ -1058,7 +1058,15 @@ bool MegaCmdExecuter::checkAndInformPSA(std::optional<int> clientID, bool enforc
     }
 
     std::unique_ptr<MegaUser> user(api->getMyUser());
-    if (!user)
+#ifdef MEGACMD_TESTING_CODE
+    // Only for an isolated SDK-transport regression using a loopback API
+    // endpoint. This is not compiled into the Release server.
+    const bool allowLocalTransportTest =
+        TI::Instance().flag(TI::Flag::PSA_ALLOW_ANONYMOUS_SDK_TRANSPORT);
+#else
+    const bool allowLocalTransportTest = false;
+#endif
+    if (!user && !allowLocalTransportTest)
     {
         LOG_debug << "No PSA request (not logged into an account)";
         return false;
@@ -1080,12 +1088,18 @@ bool MegaCmdExecuter::checkAndInformPSA(std::optional<int> clientID, bool enforc
     MegaCmdSandbox *sandbox = sandboxCMD;
 
     LOG_verbose << "Getting PSA asynchronously";
+#ifdef MEGACMD_TESTING_CODE
+    if (allowLocalTransportTest)
+    {
+        TI::Instance().increaseTestValue(TI::TestValue::PSA_REAL_SDK_REQUESTS_STARTED);
+    }
+#endif
     api->getPSA(new MegaCmdListenerFuncExecuter(
         [weakGate, sandbox, clientID](MegaApi*, MegaRequest* request, MegaError* error)
         {
             if (auto gate = weakGate.lock())
             {
-                gate->finish([&]
+                const bool delivered = gate->finish([&]
                 {
                     if (error->getErrorCode() == MegaError::API_ENOENT)
                     {
@@ -1130,6 +1144,16 @@ bool MegaCmdExecuter::checkAndInformPSA(std::optional<int> clientID, bool enforc
                         LOG_warn << "Unable to retrieve PSA: " << error->getErrorString();
                     }
                 });
+#ifdef MEGACMD_TESTING_CODE
+                // The SDK callback may arrive after our optional delivery
+                // window. Record the rejection only in the integration build.
+                if (!delivered &&
+                    TI::Instance().flag(TI::Flag::PSA_ALLOW_ANONYMOUS_SDK_TRANSPORT))
+                {
+                    TI::Instance().increaseTestValue(
+                        TI::TestValue::PSA_REAL_SDK_LATE_COMPLETIONS_REJECTED);
+                }
+#endif
             }
         }, true /* self-delete only on SDK completion */));
     // Advisory PSA delivery must never delay command-processing or login.

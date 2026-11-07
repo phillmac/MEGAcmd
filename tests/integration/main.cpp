@@ -92,6 +92,25 @@ int main (int argc, char *argv[])
 
     std::thread serverThread([] {
 
+        // This integration binary alone may direct a real SDK API call to a
+        // loopback-only transport fixture. executeServer() is called directly,
+        // so CLI --apiurl parsing from server_main.cpp does NOT apply here.
+        std::string localApiUrl;
+        if (const char* const envUrl = getenv("MEGACMD_TEST_GPSA_API_URL"))
+        {
+            const std::string url(envUrl);
+            const std::string prefix = "http://127.0.0.1:";
+            if (url.rfind(prefix, 0) != 0 || url.back() != '/' ||
+                url.substr(prefix.size(), url.size() - prefix.size() - 1).empty() ||
+                url.substr(prefix.size(), url.size() - prefix.size() - 1)
+                    .find_first_not_of("0123456789") != std::string::npos)
+            {
+                std::cerr << "GPSA transport test URL must be localhost with a numeric port" << std::endl;
+                std::abort();
+            }
+            localApiUrl = url;
+        }
+
         std::vector<char*> args{
             (char *)"argv0_INTEGRATION_TESTS",
             nullptr
@@ -117,7 +136,8 @@ int main (int argc, char *argv[])
         }
 
         auto createDefaultStream = [] { return new megacmd::FileRotatingLoggedStream(megacmd::MegaCmdLogger::getDefaultFilePath()); };
-        megacmd::executeServer(1, args.data(), createDefaultStream, logConfig);
+        megacmd::executeServer(1, args.data(), createDefaultStream, logConfig,
+                                false, localApiUrl, !localApiUrl.empty());
     });
 
     auto waitReturn = serverWaitingPromise.get_future().wait_for(std::chrono::seconds(10));

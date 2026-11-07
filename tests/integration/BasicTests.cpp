@@ -72,6 +72,75 @@ TEST_F(NOINTERACTIVEBasicTest, PsaNeverCompletesDoesNotBlockPetitions)
     TI::Instance().resetTestValue(TI::TestValue::PSA_STALLED_REQUESTS_STARTED);
 }
 
+TEST_F(NOINTERACTIVEBasicTest, PsaActualSdkTransportCanStallWithoutBlockingPetitions)
+{
+    // This is a real MegaApi -> SDK HTTP command test, not a synthetic
+    // PsaAsyncGate fixture. The URL comes from a loopback-only test VM.
+    if (!getenv("MEGACMD_TEST_GPSA_API_URL"))
+    {
+        GTEST_SKIP() << "loopback SDK API endpoint not configured";
+    }
+
+    TI::Instance().setTestValue(TI::TestValue::PSA_REAL_SDK_REQUESTS_STARTED, uint64_t(0));
+    TI::Instance().setTestValue(TI::TestValue::PSA_REAL_SDK_LATE_COMPLETIONS_REJECTED, uint64_t(0));
+    TestInstrumentsFlagGuard allowAnonymousSdkRequest(
+        TI::Flag::PSA_ALLOW_ANONYMOUS_SDK_TRANSPORT);
+
+    // A greeting may schedule the first PSA check before the manual petition
+    // is parsed. Both scheduling orders are valid; at most one may be in flight.
+    auto first = executeInClient({"psa"});
+    ASSERT_TRUE(first.ok()) << first.err();
+    EXPECT_THAT(first.out(), testing::AnyOf(
+        testing::HasSubstr("PSA check queued"),
+        testing::HasSubstr("already pending")));
+
+    auto second = executeInClient({"psa"});
+    ASSERT_TRUE(second.ok()) << second.err();
+    EXPECT_THAT(second.out(), testing::HasSubstr("already pending"));
+
+    auto count = TI::Instance().testValue(TI::TestValue::PSA_REAL_SDK_REQUESTS_STARTED);
+    ASSERT_TRUE(count.has_value());
+    ASSERT_TRUE(std::holds_alternative<uint64_t>(*count));
+    EXPECT_EQ(std::get<uint64_t>(*count), uint64_t(1))
+        << "the actual MegaApi::getPSA call must be submitted only once";
+
+    for (int i = 0; i < 12; ++i)
+    {
+        const auto start = std::chrono::steady_clock::now();
+        auto response = executeInClient({"echo", "sdk-http-pending-dispatch"});
+        ASSERT_TRUE(response.ok()) << response.err();
+        EXPECT_THAT(response.out(), testing::HasSubstr("sdk-http-pending-dispatch"));
+        EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(3));
+    }
+    auto version = executeInClient({"version"});
+    EXPECT_TRUE(version.ok()) << version.err();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+    count = TI::Instance().testValue(TI::TestValue::PSA_REAL_SDK_REQUESTS_STARTED);
+    ASSERT_TRUE(count.has_value());
+    EXPECT_EQ(std::get<uint64_t>(*count), uint64_t(1));
+    if (getenv("MEGACMD_TEST_GPSA_EXPECT_LATE_CALLBACK"))
+    {
+        // The mock returns API_ENOENT after 8 seconds; the test-only gate
+        // deadline is 3 seconds. Production remains a 30-second window.
+        // Avoid the SDK's ~20-second per-attempt HTTP timeout and retries.
+        bool rejected = false;
+        for (int i = 0; i < 80; ++i)
+        {
+            auto value = TI::Instance().testValue(
+                TI::TestValue::PSA_REAL_SDK_LATE_COMPLETIONS_REJECTED);
+            if (value && std::get<uint64_t>(*value) > 0)
+            {
+                rejected = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+        EXPECT_TRUE(rejected) << "late real SDK callback was never rejected";
+    }
+    TI::Instance().resetTestValue(TI::TestValue::PSA_REAL_SDK_LATE_COMPLETIONS_REJECTED);
+    TI::Instance().resetTestValue(TI::TestValue::PSA_REAL_SDK_REQUESTS_STARTED);
+}
+
 TEST_F(NOINTERACTIVENotLoggedTest, Folderlogin)
 {
     {

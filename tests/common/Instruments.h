@@ -52,6 +52,9 @@ public:
         SOME_MEGACMD_INSTRUMENT_FLAG,
         // Test-only: simulate a getPSA request whose SDK callback never fires.
         PSA_SDK_NEVER_COMPLETES,
+        // Exercise genuine SDK getPSA transport without a MEGA login.
+        // Only instrumentation tests may set this flag; no Release path.
+        PSA_ALLOW_ANONYMOUS_SDK_TRANSPORT,
     };
 
     bool flag(Flag flag);
@@ -87,6 +90,8 @@ public:
     {
         AMIPRO_LEVEL,
         PSA_STALLED_REQUESTS_STARTED,
+        PSA_REAL_SDK_REQUESTS_STARTED,
+        PSA_REAL_SDK_LATE_COMPLETIONS_REJECTED,
         SYNC_ISSUES_LIST_SIZE,
         SYNC_ISSUE_ENFORCE_PATH_PROBLEM,
         SYNC_ISSUE_ENFORCE_REASON_TYPE,

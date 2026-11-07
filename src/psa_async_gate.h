@@ -8,6 +8,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdlib>
 #include <functional>
 #include <mutex>
 
@@ -16,8 +17,27 @@ namespace megacmd {
 class PsaAsyncGate
 {
 public:
+    // The real server always uses 30s. Debug/test builds may shorten the
+    // delivery window to exercise a real SDK response arriving after expiry
+    // but *before* the SDK HTTP layer's own shorter request timeout.
+    static std::chrono::steady_clock::duration defaultDeadline()
+    {
+#ifdef MEGACMD_TESTING_CODE
+        if (const char* value = std::getenv("MEGACMD_TEST_PSA_GATE_DEADLINE_MS"))
+        {
+            char* end = nullptr;
+            const long ms = std::strtol(value, &end, 10);
+            if (end != value && end && *end == '\0' && ms >= 100 && ms <= 30000)
+            {
+                return std::chrono::milliseconds(ms);
+            }
+        }
+#endif
+        return std::chrono::seconds(30);
+    }
+
     explicit PsaAsyncGate(
-        std::chrono::steady_clock::duration deadline = std::chrono::seconds(30))
+        std::chrono::steady_clock::duration deadline = defaultDeadline())
       : mDeadline(deadline)
     {
     }

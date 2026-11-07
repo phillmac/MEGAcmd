@@ -1,6 +1,6 @@
 # MEGAcmd 2.7 PSA mitigation — AlmaLinux 10.2 rootless service
 
-**Status: validated on the .eu test host; not installed, started, or enabled on the OVH production jump box.**
+**Status: validated under a real systemd user manager inside a disposable AlmaLinux 10.2 VM with SELinux enforcing. Not installed, started, or enabled on the OVH production jump box.**
 
 Canonical source: this repository, branch `fix/psa-async-timeout`, based on upstream MEGAcmd `2.7.0_Linux`. The patched binary is validated as a full-media Release build, with Debug-only fault injection absent.
 
@@ -74,8 +74,8 @@ The Quadlet intentionally uses `HOME=/home/almalinux` and binds host `%h/.megaCm
 6. Verify `/proc/<server-pid>/exe`, local `version`, repeated `help`/socket checks, account state, then bounded remote read-only operations. Reconcile uploads before resuming producers.
 7. Keep the old RPM and rollback state intact. If the new process cannot start or remain responsive, use the reviewed rollback plan in Dotfiles rather than wiping or downgrading an evolved cache.
 
-**The commands in step 5 have NOT been run on the jump box.** A Quadlet generated user service should be validated with the actual target systemd user bus before production cutover. The remote .eu terminal currently does not provide a usable systemd user bus; only the generator and equivalent Podman lifecycle were tested.
+**The commands in step 5 have NOT been run on the jump box.** They were executed exclusively in an isolated, credential-free AlmaLinux 10.2 KVM guest. The real `systemd --user` manager (with disposable test account and lingering enabled) generated and started the Quadlet while SELinux was **enforcing**; the guest exposed the Unix socket, answered `mega-exec version`, passed the Podman health check, and `systemctl --user stop` terminated it gracefully in approximately three seconds, without a forced kill. No auto-enable target exists. The VM does not establish compatibility with production MEGA sessions or transfers. The .eu remote shell also has a working user bus when the missing `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` variables are supplied.
 
 ## Known open gates
 
-Real MEGA SDK transport/callback failure replay on an isolated account, full user-manager activation/stop on AlmaLinux 10.2, and a documented, validated cache/queue cutover remain outstanding. The PSA mitigation is not a general-purpose SDK deadlock fix. The separate `psa --discard` synchronous request and orphaned archive `mega-exec` clients are not resolved by this change.
+The full user-manager activation/stop gate and **anonymous real SDK `gpsa` HTTP stall/drop/late-response tests** have passed on the disposable VM; no MEGA account was used. Still outstanding: **authenticated** session/transfer testing, review of the SELinux-label-disabling tradeoff, and a documented, validated cache/queue cutover with rollback. The PSA mitigation is not a general-purpose SDK deadlock fix. The separate `psa --discard` synchronous request and orphaned archive `mega-exec` clients are not resolved by this change.

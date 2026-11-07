@@ -77,3 +77,6 @@ Info.plist
 
 # Backups
 *_bk
+
+# Transient QEMU guests, SSH keys, SDK test evidence (never commit)
+/.vm-tests/
