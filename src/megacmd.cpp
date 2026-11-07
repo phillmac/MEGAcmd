@@ -901,6 +901,7 @@ void insertValidParamsPerCommand(set<string> *validParams, string thecommand, se
     else if ("psa" == thecommand)
     {
         validParams->insert("discard");
+        validOptValues->insert("auto");
     }
     else if ("reload" == thecommand)
     {
@@ -1702,7 +1703,7 @@ const char * getUsageStr(const char *command, const HelpFlags& flags)
     }
     if (!strcmp(command, "psa"))
     {
-        return "psa [--discard]";
+        return "psa [--discard] [--auto=ON|OFF|query]";
     }
     if (!strcmp(command, "cancel"))
     {
@@ -2276,6 +2277,9 @@ string getHelpStr(const char *command, const HelpFlags& flags = {})
         os << endl;
         os << "Options:" << endl;
         os << " --discard" << "\t" << "Discards last received PSA" << endl;
+        os << " --auto=ON|OFF|query" << "\t" << "Enable, disable, or query automatic PSA fetches (default: OFF)" << endl;
+        os << " Without --auto, fetch a PSA manually regardless of automatic setting." << endl;
+        os << " Automatic-fetch changes are saved and apply immediately." << endl;
         os << endl;
     }
     else if (!strcmp(command, "confirmcancel"))

@@ -249,6 +249,32 @@ You can also update manually by typing `update` within MEGAcmd. This will check 
 
 Alternatively you can also execute `MEGAcmdUpdater.exe` in Windows or `MEGAcmdUpdater` (located at /Applications/MEGAcmd.app/Contents/MacOS) in macOS.
 
+## Public Service Announcements (PSA)
+
+In this fork, automatic MEGA Public Service Announcement (PSA) retrieval is
+**disabled by default** to avoid blocking unattended servers. This is
+independent of file transfers and normal MEGA operations.
+
+Automatic PSA checking is an optional, persistent setting:
+
+```sh
+mega-psa --auto=query   # Show whether automatic PSA checking is enabled
+mega-psa --auto=ON      # Enable automatic PSA checking
+mega-psa --auto=OFF     # Disable it again (default)
+mega-psa               # Fetch an announcement manually, even when automatic checking is OFF
+mega-psa --discard     # Discard the last received PSA, then check manually
+```
+
+The setting is stored in the MEGAcmd server configuration and takes effect
+immediately, without restarting the daemon. Automatic checks occur during
+existing login/client events, subject to the normal once-daily throttle; they
+are not an independent timer. Enabling automatic checks does not immediately
+request an announcement. Disabling them prevents **new** automatic requests but
+cannot cancel an existing SDK request. Manual fetching remains asynchronous
+and is always permitted (subject to the existing one-in-flight PSA safeguard).
+Use `mega-psa --auto=query` to inspect the current setting. Do not combine
+`--auto` with `--discard`.
+
 ## Known Bugs
 Currently there are certain discrepancies with **PATHS** when logging into a public folder.
 
