@@ -1,0 +1,47 @@
+# EXPERIMENTAL ONLY. Do not install/enable against production without a
+# quiesced 2.5.2 session, authoritative queue reconciliation and rollback review.
+#
+# Unlike ops/megacmd-psa.container, THIS variant retains SELinux confinement:
+# - Podman privately relabels only a VERSIONED, separately cloned state dir.
+# - The ORIGINAL ~/.megaCmd remains host-labelled and intact (except for a
+#   manually installed socket symlink following old-daemon shutdown).
+# - The helper targets ContainerName=megacmd-psa-27 and must be installed
+#   separately in ~/.local/libexec before any approved activation.
+[Unit]
+Description=MEGAcmd PSA mitigation 2.7 — experimental SELinux confined cloned state
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsDirectory=%h/.local/state/megacmd-psa-27/.megaCmd
+
+[Container]
+Image=localhost/megacmd-psa-alma10-runtime:2.7
+ContainerName=megacmd-psa-27
+Pull=never
+# REQUIRED: offline, consistent clone of the original 2.5.2 state after stop.
+# :Z privately relabels this CLONE, not the live ~/.megaCmd directory.
+Volume=%h/.local/state/megacmd-psa-27/.megaCmd:/home/almalinux/.megaCmd:Z
+Environment=HOME=/home/almalinux
+WorkingDir=/home/almalinux
+# NO SecurityLabelDisable: use the standard container_t confinement instead.
+NoNewPrivileges=true
+DropCapability=ALL
+ReadOnly=true
+Tmpfs=/tmp:rw,nosuid,nodev,size=256m
+Tmpfs=/run:rw,nosuid,nodev,size=16m
+Memory=4g
+PidsLimit=512
+StopSignal=SIGTERM
+StopTimeout=60
+LogDriver=journald
+HealthCmd=/opt/megacmd-psa-full-release/mega-exec version
+HealthInterval=60s
+HealthTimeout=8s
+HealthRetries=3
+HealthStartPeriod=45s
+
+[Service]
+ExecStop=%h/.local/libexec/megacmd-psa-graceful-stop
+Restart=no
+TimeoutStopSec=80s
+
+# No [Install]/WantedBy: manual review and explicit activation only.

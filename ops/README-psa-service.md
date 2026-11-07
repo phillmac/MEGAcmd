@@ -62,6 +62,12 @@ Performed in a **separate** temporary AlmaLinux 10.2 guest, using an explicitly 
 
 These results verify small-object authentication, command responsiveness, queued-upload recovery and session reuse across a **service restart**. They do **not** demonstrate uninterrupted large transfers, arbitrary network partitions, rollover during a server reboot, quota-exhaustion handling, or backward compatibility with an existing production 2.5.2 cache and transfer journal. The proposed runtime still has the explicit SELinux isolation tradeoff described below.
 
+## Recommended confined alternative (tested on synthetic state)
+
+The original Quadlet above disables SELinux container labels because it mounts the **live** `~/.megaCmd` directory. A more secure candidate is [`ops/prototypes/megacmd-psa-confined.container`](prototypes/megacmd-psa-confined.container), described in [`ops/README-psa-confined-state-prototype.md`](README-psa-confined-state-prototype.md). It binds a **versioned clone** of the old state under `%h/.local/state/megacmd-psa-27/.megaCmd:Z` and retains `container_t` confinement. A single, controlled symlink at the old host `megacmd.socket` pathname connects legacy host-side clients to that new state.
+
+The real patched 2.7 server, exact 2.5.2 host client binary, and rollback to the exact 2.5.2 server binary were tested in an isolated SELinux-enforcing AlmaLinux guest, with synthetic state only. **Prefer this confined candidate for production review**; do not relabel or clone the live `~/.megaCmd` until it has been quiesced and the maintenance plan approved. The current Quadlet stays as an experimental compatibility fallback, not the default security recommendation.
+
 ## Deliberate security and operational choices
 
 - **No automatic installation or enablement.** The checked-in Quadlet has no [Install]/WantedBy section. Never copy it onto the jump box while the old daemon is still active.
