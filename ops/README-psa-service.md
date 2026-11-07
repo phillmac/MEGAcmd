@@ -42,9 +42,11 @@ QUADLET_UNIT_DIRS="$PWD/ops" /usr/libexec/podman/quadlet -user -dryrun
 bash ops/test-megacmd-psa-runtime.sh
 ```
 
-The runtime Dockerfile refuses an unexpected server binary. Validated full-media server SHA-256: `76ae6af668ee6735731d3a1af2c56fd080b08cca498bd3510b543c274ec2942c`.
+The runtime Dockerfile refuses an unexpected server binary. Validated full-media server SHA-256: `36e5d29e7c257c86454c7940d3c7ffddfe3e3b787a45c776d6290344e850d97c`.
 
 The Quadlet intentionally uses `HOME=/home/almalinux` and binds host `%h/.megaCmd` to that same location inside the container. Linux `mega-exec` uses `$HOME/.megaCmd/megacmd.socket`, so this arrangement preserves visibility of the Unix socket to **existing host-side clients**. The image contains **no session credentials**.
+
+The matching source tree at commit `03817503` completed real SDK HTTP `gpsa` stall, disconnect/retry and late-response acceptance testing in the guest. The **full media-enabled Release build** from that source retained no test-only instrumentation and passed shared-library inspection. Its bundled image was loaded into the guest, and the real systemd user service start/health/stop test passed again under SELinux enforcing. New runtime image SHA-256/ID: `30a9dd610b790408519029299aec8ec544f5134ff9f6b36ac07164576ce03809`.
 
 ## Deliberate security and operational choices
 

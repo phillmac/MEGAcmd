@@ -10,7 +10,7 @@ ENV HOME=/home/almalinux
 ENV LD_LIBRARY_PATH=/opt/megacmd-psa-full-release/lib
 WORKDIR /home/almalinux
 RUN mkdir -p /home/almalinux/.megaCmd && chmod 0700 /home/almalinux/.megaCmd \
-    && echo '76ae6af668ee6735731d3a1af2c56fd080b08cca498bd3510b543c274ec2942c  /opt/megacmd-psa-full-release/mega-cmd-server' | sha256sum -c - \
+    && echo '36e5d29e7c257c86454c7940d3c7ffddfe3e3b787a45c776d6290344e850d97c  /opt/megacmd-psa-full-release/mega-cmd-server' | sha256sum -c - \
     && for b in mega-cmd-server mega-cmd mega-exec; do \
          test -x "/opt/megacmd-psa-full-release/$b" || exit 3; \
          test -z "$(ldd "/opt/megacmd-psa-full-release/$b" | grep 'not found')" || exit 4; \
