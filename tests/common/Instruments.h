@@ -50,6 +50,8 @@ public:
     enum class Flag
     {
         SOME_MEGACMD_INSTRUMENT_FLAG,
+        // Test-only: simulate a getPSA request whose SDK callback never fires.
+        PSA_SDK_NEVER_COMPLETES,
     };
 
     bool flag(Flag flag);
@@ -84,6 +86,7 @@ public:
     enum class TestValue
     {
         AMIPRO_LEVEL,
+        PSA_STALLED_REQUESTS_STARTED,
         SYNC_ISSUES_LIST_SIZE,
         SYNC_ISSUE_ENFORCE_PATH_PROBLEM,
         SYNC_ISSUE_ENFORCE_REASON_TYPE,

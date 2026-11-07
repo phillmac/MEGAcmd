@@ -1037,6 +1037,20 @@ bool MegaCmdExecuter::decryptLinkIfEncrypted(MegaApi *api, std::string &publicLi
 
 bool MegaCmdExecuter::checkAndInformPSA(std::optional<int> clientID, bool enforce)
 {
+#ifdef MEGACMD_TESTING_CODE
+    // Test-only deterministic fault injection, before the login guard so the
+    // petition/command integration test needs no external MEGA credentials.
+    // Intentionally never provides a callback; stop() must not wait for one.
+    if (TI::Instance().flag(TI::Flag::PSA_SDK_NEVER_COMPLETES))
+    {
+        if (!mPsaGate->tryStart())
+        {
+            return false;
+        }
+        TI::Instance().increaseTestValue(TI::TestValue::PSA_STALLED_REQUESTS_STARTED);
+        return true;
+    }
+#endif
     const m_time_t now = m_time();
     if (!enforce && now - sandboxCMD->timeOfPSACheck <= 86400)
     {

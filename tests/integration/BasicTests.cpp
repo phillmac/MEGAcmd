@@ -32,6 +32,46 @@ TEST_F(NOINTERACTIVEBasicTest, Help)
     executeInClient({"help"});
 }
 
+TEST_F(NOINTERACTIVEBasicTest, PsaNeverCompletesDoesNotBlockPetitions)
+{
+    // Exercise the real in-process server and client petition dispatch,
+    // without login or network requests. The fake PSA request never calls
+    // back; ordinary commands must still complete, and the server shutdown
+    // in integration main() must not wait for an absent SDK completion.
+    TI::Instance().setTestValue(TI::TestValue::PSA_STALLED_REQUESTS_STARTED, uint64_t(0));
+    TestInstrumentsFlagGuard sdkNeverCompletes(TI::Flag::PSA_SDK_NEVER_COMPLETES);
+
+    auto first = executeInClient({"psa"});
+    EXPECT_TRUE(first.ok()) << first.err();
+
+    auto started = TI::Instance().testValue(TI::TestValue::PSA_STALLED_REQUESTS_STARTED);
+    ASSERT_TRUE(started.has_value());
+    EXPECT_EQ(std::get<uint64_t>(*started), uint64_t(1))
+        << "PSA fault injection did not exercise the actual executor";
+
+    // A second manual PSA command must not generate more outstanding listeners.
+    auto second = executeInClient({"psa"});
+    EXPECT_TRUE(second.ok()) << second.err();
+    started = TI::Instance().testValue(TI::TestValue::PSA_STALLED_REQUESTS_STARTED);
+    ASSERT_TRUE(started.has_value());
+    EXPECT_EQ(std::get<uint64_t>(*started), uint64_t(1));
+
+    for (int i = 0; i < 6; ++i)
+    {
+        const auto begin = std::chrono::steady_clock::now();
+        auto response = executeInClient({"echo", "psa-dispatch-still-responsive"});
+        const auto elapsed = std::chrono::steady_clock::now() - begin;
+        EXPECT_TRUE(response.ok()) << response.err();
+        EXPECT_THAT(response.out(), testing::HasSubstr("psa-dispatch-still-responsive"));
+        EXPECT_LT(elapsed, std::chrono::seconds(3))
+            << "command processing waited behind a missing PSA completion";
+    }
+    auto version = executeInClient({"version"});
+    EXPECT_TRUE(version.ok()) << version.err();
+
+    TI::Instance().resetTestValue(TI::TestValue::PSA_STALLED_REQUESTS_STARTED);
+}
+
 TEST_F(NOINTERACTIVENotLoggedTest, Folderlogin)
 {
     {
