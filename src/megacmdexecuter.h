@@ -23,6 +23,7 @@
 #include "megacmdsandbox.h"
 #include "listeners.h"
 #include "deferred_single_trigger.h"
+#include "psa_async_gate.h"
 #include "sync_issues.h"
 
 #include <optional>
@@ -45,6 +46,9 @@ private:
     std::mutex mtxSyncMap;
     std::mutex mtxWebDavLocations;
     std::mutex mtxFtpLocations;
+
+    // Shared state is referenced weakly by SDK PSA callbacks.
+    std::shared_ptr<PsaAsyncGate> mPsaGate = std::make_shared<PsaAsyncGate>();
 
     DeferredSingleTrigger mDeferredSharedFoldersVerifier;
     SyncIssuesManager mSyncIssuesManager;

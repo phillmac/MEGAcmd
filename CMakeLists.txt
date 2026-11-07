@@ -378,6 +378,15 @@ if (ENABLE_MEGACMD_TESTS)
     if(APPLE)
         target_link_libraries(mega-cmd-tests-unit PRIVATE "-framework Security" )
     endif()
+
+    # PSA checks must not stall dispatch if the SDK never calls back.
+    # This test is independent of the network, account and full SDK runtime.
+    add_executable(mega-cmd-psa-async-tests
+        "${ProjectDir}/tests/unit/psa_async_gate_test.cpp")
+    find_package(Threads REQUIRED)
+    target_link_libraries(mega-cmd-psa-async-tests PRIVATE Threads::Threads)
+    enable_testing()
+    add_test(NAME mega-cmd-psa-async-gate COMMAND mega-cmd-psa-async-tests)
 endif()
 
 if (WIN32)

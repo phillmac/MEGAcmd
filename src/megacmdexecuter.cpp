@@ -230,6 +230,7 @@ MegaCmdExecuter::~MegaCmdExecuter()
 void MegaCmdExecuter::stopDeferredWork()
 {
     mDeferredSharedFoldersVerifier.stop();
+    mPsaGate->stop();
 }
 
 // list available top-level nodes and contacts/incoming shares
@@ -1036,71 +1037,88 @@ bool MegaCmdExecuter::decryptLinkIfEncrypted(MegaApi *api, std::string &publicLi
 
 bool MegaCmdExecuter::checkAndInformPSA(std::optional<int> clientID, bool enforce)
 {
-    bool toret = false;
-    m_time_t now = m_time();
-    if ( enforce || (now - sandboxCMD->timeOfPSACheck > 86400) )
+    const m_time_t now = m_time();
+    if (!enforce && now - sandboxCMD->timeOfPSACheck <= 86400)
     {
-        MegaUser *u = api->getMyUser();
-        if (!u)
-        {
-            LOG_debug << "No PSA request (not logged into an account)";
-            return toret; //Not logged in, no reason to get PSA
-        }
-        delete u;
-
-        sandboxCMD->timeOfPSACheck = now;
-
-        LOG_verbose << "Getting PSA";
-        MegaCmdListener *megaCmdListener = new MegaCmdListener(api, NULL);
-        api->getPSA(megaCmdListener);
-        megaCmdListener->wait();
-        if (megaCmdListener->getError()->getErrorCode() == MegaError::API_ENOENT)
-        {
-            LOG_verbose << "No new PSA available";
-            sandboxCMD->lastPSAnumreceived = max(0,sandboxCMD->lastPSAnumreceived);
-        }
-        else if(checkNoErrors(megaCmdListener->getError(), "get PSA"))
-        {
-            int number = static_cast<int>(megaCmdListener->getRequest()->getNumber());
-            std::string name = megaCmdListener->getRequest()->getName();
-            std::string text = megaCmdListener->getRequest()->getText();
-
-            sandboxCMD->lastPSAnumreceived = number;
-
-            LOG_debug << "Informing PSA #" << number << ": " << name;
-
-            stringstream oss;
-
-            oss << "<" << name << ">";
-            oss << text;
-
-            string action = megaCmdListener->getRequest()->getPassword();
-            string link = megaCmdListener->getRequest()->getLink();
-            if (action.empty())
-            {
-                action = "read more: ";
-            }
-
-            if (link.size())
-            {
-                oss << endl << action << ": " << link;
-            }
-
-            oss << endl << " Execute \"psa --discard\" to stop seeing this message";
-
-            if (clientID)
-            {
-                informStateListener(oss.str(), *clientID);
-            }
-            else
-            {
-                broadcastMessage(oss.str());
-            }
-            toret = true;
-        }
-        delete megaCmdListener;
+        return false;
     }
-    return toret;
+
+    std::unique_ptr<MegaUser> user(api->getMyUser());
+    if (!user)
+    {
+        LOG_debug << "No PSA request (not logged into an account)";
+        return false;
+    }
+
+    auto gate = mPsaGate;
+    if (!gate->tryStart())
+    {
+        // A PSA request is already in progress, possibly indefinitely.
+        // We deliberately do not spawn another listener for a stalled request.
+        LOG_debug << "PSA check already pending or shutting down";
+        return false;
+    }
+
+    sandboxCMD->timeOfPSACheck = now;
+    auto weakGate = std::weak_ptr<PsaAsyncGate>(gate);
+    // Safe only inside PsaAsyncGate::finish(), which serializes teardown and
+    // prevents access to the sandbox once stopDeferredWork() has returned.
+    MegaCmdSandbox *sandbox = sandboxCMD;
+
+    LOG_verbose << "Getting PSA asynchronously";
+    api->getPSA(new MegaCmdListenerFuncExecuter(
+        [weakGate, sandbox, clientID](MegaApi*, MegaRequest* request, MegaError* error)
+        {
+            if (auto gate = weakGate.lock())
+            {
+                gate->finish([&]
+                {
+                    if (error->getErrorCode() == MegaError::API_ENOENT)
+                    {
+                        LOG_verbose << "No new PSA available";
+                        sandbox->lastPSAnumreceived = max(0, sandbox->lastPSAnumreceived);
+                    }
+                    else if (error->getErrorCode() == MegaError::API_OK)
+                    {
+                        const int number = static_cast<int>(request->getNumber());
+                        const std::string name = request->getName();
+                        const std::string text = request->getText();
+                        sandbox->lastPSAnumreceived = number;
+
+                        LOG_debug << "Informing PSA #" << number << ": " << name;
+                        std::stringstream message;
+                        message << "<" << name << ">" << text;
+
+                        std::string action = request->getPassword();
+                        const std::string link = request->getLink();
+                        if (action.empty())
+                        {
+                            action = "read more: ";
+                        }
+                        if (!link.empty())
+                        {
+                            message << std::endl << action << ": " << link;
+                        }
+
+                        message << std::endl << " Execute \"psa --discard\" to stop seeing this message";
+                        if (clientID)
+                        {
+                            informStateListener(message.str(), *clientID);
+                        }
+                        else
+                        {
+                            broadcastMessage(message.str());
+                        }
+                    }
+                    else
+                    {
+                        LOG_warn << "Unable to retrieve PSA: " << error->getErrorString();
+                    }
+                });
+            }
+        }, true /* self-delete only on SDK completion */));
+    // Advisory PSA delivery must never delay command-processing or login.
+    return true; // Means scheduled, not that an announcement exists.
 }
 
 std::string MegaCmdExecuter::formatErrorAndMaySetErrorCode(const MegaError &error)
@@ -8259,10 +8277,15 @@ void MegaCmdExecuter::executecommand(vector<string> words, map<string, int> *clf
             delete megaCmdListener;
         }
 
-        if (!checkAndInformPSA(std::nullopt, true) && !discard) // even when discarded: we need to read the next
+        // Manual PSA checks also return immediately. An SDK PSA request can
+        // otherwise hold a petition thread forever if its callback is lost.
+        const bool scheduled = checkAndInformPSA(std::nullopt, true);
+        if (!discard)
         {
-            OUTSTREAM << "No PSA available" << endl;
-            setCurrentThreadOutCode(MCMD_NOTFOUND);
+            OUTSTREAM << (scheduled
+                             ? "PSA check queued; announcements arrive asynchronously"
+                             : "PSA check already pending or unavailable")
+                      << endl;
         }
     }
     else if (words[0] == "mount")
