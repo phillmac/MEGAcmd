@@ -1,5 +1,8 @@
 # MEGAcmd 2.7 hobby jump-box host-path cutover
 
+**Current 9 November 2026 recovery state:** The user retired the stale 2.5.2 rollback cache and its remaining cold snapshot, freeing **2,738,847,886 bytes (~2.55 GiB)** of historical data. The original `~/.megaCmd` directory is still preserved as a host-client socket/config shim, containing only `megacmd.cfg` and the `megacmd.socket` symlink pointing to the active versioned 2.7 state. The current 2.7 cache, saved session and remote data were not touched; local dispatcher and authenticated host listing passed afterward. The private `rollback-original.sh` and `ensure-original-and-producers.sh` on the jump box now **refuse** with exit 96. **Never run the old 2.5 rollback sequence below:** the old authenticated SDK state is no longer available. Recovery is now via a fresh 2.7 cache rebuild, reauthentication and journal reconciliation.
+
+
 **Operationally validated 8 November 2026 on the OVH AlmaLinux 10.2 jump box.** The binary is the patched full-feature MEGAcmd 2.7 image from `fix/psa-async-timeout`, digest `30a9dd610b790408519029299aec8ec544f5134ff9f6b36ac07164576ce03809`.
 
 This is the **host-compatible rootless Podman** deployment. It supersedes the previous, strictly SELinux-confined clone prototype **for workloads where the MEGAcmd server processes file paths supplied by existing native host clients**.
@@ -51,14 +54,14 @@ The existing picker and backup services have separate versioned systemd drop-ins
 
 On 8 November, the Quadlet startup symlink, `Linger=yes`, generated dependency properties and a live picker restart were verified. **A full host reboot has not been used for acceptance testing.** Avoid automatic restart loops while the old 2.5.2 binary remains available as a manual rollback.
 
-## Rollback
+## Recovery after the obsolete 2.5 rollback was retired
 
-The earlier original `~/.megaCmd`, offline cold snapshot and original 2.5.2 RPM remain on the jump box. To roll back **only after checking for pending transfers**:
+The old SDK cache/session and separate cold snapshot were intentionally removed on 9 November. Do not use the historic 2.5.2 scripts for recovery; they are guarded to refuse execution. A downgrade with stale metadata would risk diverging from newer cloud operations.
 
-1. Pause the Library picker/tunnel/backup timer; make sure nothing is writing to the 2.7 clone. Record the authoritative remote journal/object changes made since cutover.
-2. Stop `megacmd-psa-confined.service` gracefully, and verify no 2.7 process/WAL writers remain. A broken command dispatcher may require a bounded forced stop of the *clone only*.
-3. Remove only the old-home `megacmd.socket` symlink if its exact target is `~/.local/state/megacmd-psa-27/.megaCmd/megacmd.socket`; **never** modify the original 2.5.2 state database or apply `:Z` to it.
-4. Remove the 2.7 Quadlet boot enablement drop-in and the Library/backup dependency drop-ins before restarting the original 2.5.2 daemon. Verify single-daemon identity and authenticated listing before restoring producers.
-5. Reconcile any remote writes by 2.7 before trusting the older 2.5.2 cache; the old state was preserved, not kept in sync with new transfers.
+If the **active 2.7 cache itself** becomes unusable, pause the Library picker, tunnel and archive/backup producers, inspect transfer state, and stop `megacmd-psa-confined.service` gracefully. Preserve any useful diagnostic evidence on-host. Move aside the defective versioned 2.7 cache; create an empty 0700 cache directory with the correct owner and make sure the existing host `~/.megaCmd/megacmd.socket` symlink targets its socket. Start the same patched 2.7 image and reauthenticate interactively if needed. Allow metadata to download from the cloud. Before resuming Library/backup jobs, verify authenticated listing, current remote objects, upload queue and the independent Library/OpenArt completion journals.
 
-**Do not ship production MEGA session files, cached SDK databases, raw logs, private SSH keys or OVH API credentials to Git.** The secure on-host maintenance materials remain private.
+A fresh 2.7 cache rebuild has not been tested on the production account. It may require credentials/MFA/recovery key, substantial API traffic and regeneration of lost transfer/resume or sync state. MEGA's cloud content is authoritative, while independently maintained Library/OpenArt/backup journals are also important: **never delete those journals with the MEGAcmd cache.**
+
+## Historical 2.5 rollback details
+
+The 8 November cutover used a distinct on-host 2.5 cold snapshot and the original RPM for rollback. That historical proof of the original cache being preserved at cutover was accurate **at that time**. On 9 November, after the live 2.7 service had continued processing cloud changes, the user explicitly retired that option and the old data were deleted. The original 2.5 binary may remain installed but is no longer a turnkey authenticated rollback.
