@@ -8,8 +8,8 @@ unit="$repo/ops/prototypes/megacmd-psa-confined.container"
 image=localhost/megacmd-psa-alma10-runtime:2.7
 podman image exists "$image" || { echo "Missing runtime image" >&2; exit 2; }
 health=$(sed -n 's/^HealthCmd=//p' "$unit")
-[[ -n "$health" && "$health" == *socket.AF_UNIX* ]] || { echo "Unexpected health command" >&2; exit 3; }
-[[ "$health" != *mega-exec* ]] || { echo "Health command must not spawn a client" >&2; exit 4; }
+[[ "$health" == "/opt/megacmd-psa-full-release/mega-exec completion version" ]] || { echo "Unexpected non-autospawning health command" >&2; exit 3; }
+[[ "$health" != *"mega-exec version"* ]] || { echo "Health command must not use auto-starting version" >&2; exit 4; }
 scratch=$(mktemp -d /tmp/mpsa-health-XXXXXXXX)
 chmod 0700 "$scratch"
 stale="$scratch/stale"
@@ -51,7 +51,7 @@ if podman healthcheck run "$name1" >"$scratch/negative.out" 2>&1; then
 fi
 test ! -e "$stale/megacmd.socket"
 [[ "$(podman inspect "$name1" --format '{{.State.Running}}')" == true ]]
-echo "PASS: missing socket is unhealthy, no daemon spawned"
+echo "PASS: missing socket is unhealthy; completion does not spawn a server"
 # Negative fixture only sleeps, no database: remove it directly, without
 # waiting for SIGTERM. This is NOT testing a MEGAcmd shutdown.
 podman rm -f "$name1" >/dev/null
@@ -67,7 +67,7 @@ for i in $(seq 1 60); do
 done
 test -S "$running/megacmd.socket"
 podman healthcheck run "$name2" >/dev/null 2>&1
-echo "PASS: live socket reports healthy without running mega-exec"
+echo "PASS: live server answers non-autospawning completion readiness"
 timeout --kill-after=3s 15s podman exec "$name2" \
     /opt/megacmd-psa-full-release/mega-exec version >"$scratch/version.out" 2>&1
 grep -Fq 2.7.0 "$scratch/version.out"

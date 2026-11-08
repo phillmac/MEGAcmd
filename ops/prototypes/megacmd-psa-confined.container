@@ -31,20 +31,20 @@ Tmpfs=/run:rw,nosuid,nodev,size=16m
 Memory=4g
 PidsLimit=512
 StopSignal=SIGTERM
-StopTimeout=60
+StopTimeout=90
 LogDriver=journald
-# Passive readiness probe. Never invoke mega-exec here: the client may fork
-# a second server while the main server's 1.24 GiB SDK cache is starting.
-# This probes a real Unix accept(), not merely a stale socket inode.
-HealthCmd=/usr/bin/python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect('/home/almalinux/.megaCmd/megacmd.socket'); s.close()"
+# Command-dispatcher readiness, not just socket accept(): completion is
+# explicitly non-autospawning in the pinned MEGAcmd 2.7 client source.
+# Do NOT replace this with ordinary mega-exec version (it forks a daemon).
+HealthCmd=/opt/megacmd-psa-full-release/mega-exec completion version
 HealthInterval=60s
 HealthTimeout=8s
 HealthRetries=3
-HealthStartPeriod=45s
+HealthStartPeriod=180s
 
 [Service]
 ExecStop=%h/.local/libexec/megacmd-psa-graceful-stop
 Restart=no
-TimeoutStopSec=80s
+TimeoutStopSec=240s
 
 # No [Install]/WantedBy: manual review and explicit activation only.

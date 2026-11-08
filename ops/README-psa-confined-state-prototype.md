@@ -53,24 +53,50 @@ The trials identified several independent operational hazards, not evidence that
 
 The final attempted live clone was stopped and **2.5.2 restored**, with a verified matching cold snapshot, authenticated listing and all three Library/tunnel/backup producer units active. Its temporary systemd rollback timer was disarmed. Subsequent development and tests must be isolated from production until the above safeguards are implemented and validated.
 
-## Passive health regression, 8 November 2026
+## Dispatcher-readiness and large-cache stop findings (8 November 2026)
 
-The confined Quadlet health command uses a Python standard-library Unix
-socket connection. It deliberately does NOT invoke mega-exec, because the
-client can fork a separate native mega-cmd-server when its socket is absent
-during large-cache startup.
+Two additional, completely isolated tests were run on 8 November while the
+original 2.5.2 server and Library picker continued operating on the jump box.
 
-The new test script ops/test-megacmd-psa-passive-health.sh exercises both
-conditions in disposable, network-disabled Podman containers:
+- Real cold-cache clone: a freshly copied 1.35 GB snapshot started inside a
+  network-disabled, rootless 2.7 Release container with SELinux confinement.
+  The container created its socket almost immediately and the former Python
+  socket-connect health check reported healthy, but an *early* mega-exec exit
+  request did NOT finish within 85 seconds. The disposable clone was stopped;
+  no original 2.5.2 files, labels, socket or clients were touched.
+- Dispatcher-aware candidate: the pinned client source explicitly sets
+  mayInitiateServer=false when the command starts with completion, unlike the
+  ordinary version command. The non-mutating command
+  mega-exec completion version returned 254 with no server, created no
+  socket or daemon, and returned 0 with a responsive 2.7 server.
+- Tested against another cold snapshot, this command-based health check
+  correctly stayed unhealthy for more than two minutes even though the
+  Unix socket was listening. Because the cloned session had NO outbound
+  network and the dispatcher remained unavailable, this is a negative
+  readiness test, not a demonstration of a complete offline cache migration.
+  The test-only container and its state were deleted with the original
+  daemon, backup timer, tunnel and Library picker still active.
+- The confined Quadlet now uses completion version as its health check,
+  keeps HealthOnFailure unset and Restart=no, and allows a 180-second
+  initial health grace period. Never substitute the auto-spawning ordinary
+  mega-exec version command.
+- The graceful-stop helper bounds its mega-exec exit request to 150 seconds;
+  the Quadlet has a 240-second systemd stop budget and a 90-second Podman
+  stop limit. **A server stuck before dispatch readiness may still require
+  a forced stop of the versioned clone.** Before any rollback, verify that
+  all 2.7 processes and WAL writers have exited; never start the original
+  server concurrently. No automatic migration or restart is enabled.
+- The revised credential-free test at
+  ops/test-megacmd-psa-passive-health.sh checks that a missing socket is
+  unhealthy without auto-starting a server, then verifies real 2.7
+  dispatcher readiness and graceful exit. The pre-existing
+  ops/test-megacmd-psa-runtime.sh lifecycle suite also passes against the
+  changed bounded stop helper.
 
-- No socket: the health probe fails; the container stays running and no
-  MEGAcmd server is started.
-- Actual patched Release server: the probe succeeds, the client reports
-  version 2.7.0 and a normal exit command shuts the test server down.
-
-No production session/cache is mounted or modified. This test does not
-guarantee that the 1.24 GiB production cache will initialise within the
-health start period. HealthOnFailure is unset and no restart is enabled.
+The health tests and offline cold-cache tests are not production cutover
+approval. An active network-enabled trial may have different SDK startup
+behaviour. The original authenticated cache and completed-object journals
+still require a guarded rollback and on-host reconciliation procedure.
 
 ## Reviewed unit
 

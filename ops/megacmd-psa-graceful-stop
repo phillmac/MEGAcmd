@@ -6,9 +6,12 @@ set -euo pipefail
 if (($# != 0)); then echo "no arguments allowed" >&2; exit 2; fi
 name=megacmd-psa-27
 if ! podman container exists "$name"; then exit 0; fi
-if ! podman exec --env HOME=/home/almalinux "$name" \
+# The dispatcher can be unavailable for minutes while a 1.24 GiB cache
+# migrates. Bound the request itself; do not leave ExecStop hung forever.
+# This sends the normal MEGA exit request; timeout only stops the client.
+if ! timeout --signal=TERM --kill-after=5s 150s podman exec --env HOME=/home/almalinux "$name" \
     /opt/megacmd-psa-full-release/mega-exec exit; then
-    echo "MEGAcmd did not acknowledge the shutdown request" >&2
+    echo "MEGAcmd did not acknowledge shutdown within the 150-second request window" >&2
     exit 1
 fi
 for n in $(seq 1 55); do

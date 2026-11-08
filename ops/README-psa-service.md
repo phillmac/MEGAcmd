@@ -100,6 +100,22 @@ The real patched 2.7 server, exact 2.5.2 host client binary, and rollback to the
 
 **The commands in step 5 have NOT been run on the jump box.** They were executed exclusively in an isolated, credential-free AlmaLinux 10.2 KVM guest. The real `systemd --user` manager (with disposable test account and lingering enabled) generated and started the Quadlet while SELinux was **enforcing**; the guest exposed the Unix socket, answered `mega-exec version`, passed the Podman health check, and `systemctl --user stop` terminated it gracefully in approximately three seconds, without a forced kill. No auto-enable target exists. The VM does not establish compatibility with production MEGA sessions or transfers. The .eu remote shell also has a working user bus when the missing `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` variables are supplied.
 
+## Safe command readiness and shutdown after large-cache startup
+
+An enforcing jump-box clone of the historical 2.5.2 cache can create a
+Unix socket before its command dispatcher is ready. A passive socket connect
+was falsely healthy while mega-exec exit remained blocked for over 85 seconds
+in a network-disabled test container. The confined Quadlet now uses the
+pinned client's explicitly non-autospawning completion version command
+as a dispatcher readiness health check. Unhealthy state **never automatically
+restarts or kills** the container; that requires a guarded human decision.
+
+The helper's normal exit request has a 150-second timeout; the versioned
+clone has enlarged systemd/Podman stop budgets. Stopping an unresponsive
+clone can eventually result in a forced container stop, so a rollback must
+confirm the clone and its WAL writers have completely exited before
+restarting original 2.5.2. An immutable cold snapshot stays untouched.
+
 ## Known open gates
 
 The real user-manager activation/stop gate, accountless SDK HTTP stall/drop/late-response tests and **small authenticated transfer/network-recovery tests** have passed in disposable VMs. Remaining production gates: review the SELinux-label-disabling tradeoff; reconcile existing production backup/Library/OpenArt authoritative journals; rehearse a live-cache and old-RPM rollback; obtain explicit maintenance approval. The PSA mitigation is not a general-purpose SDK deadlock fix. The separate `psa --discard` synchronous request and orphaned archive `mega-exec` clients remain out of scope.
