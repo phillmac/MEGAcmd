@@ -1,5 +1,7 @@
 # Experimental confined MEGAcmd 2.7 state cutover
 
+**Historical/review-only design as of 8 November 2026.** The strictly SELinux-confined `:Z` clone worked for command IPC, but the MEGAcmd server must also read/write arbitrary **host client file paths**. A 2.7 container with only `.megaCmd` mounted passed metadata commands yet failed the production Library backup's `mega-get` readback because its `/tmp` differed from the host's. The **actual hobby-scale deployment** is [`README-psa-hostpaths.md`](README-psa-hostpaths.md), which shares host home/`/tmp` and disables SELinux container separation while preserving the separate clone and original rollback cache.
+
 **Isolated full-daemon and rollback acceptance passed, but REVIEW-ONLY for production. Nothing here authorises deploying or restarting the live OVH jump-box MEGAcmd daemon.** Do not put any production MEGA token, state database, session or credential into GitHub, ChatGPT or an off-host image.
 
 The jump box currently runs MEGAcmd **2.5.2** on **AlmaLinux 10.2**, SELinux **enforcing**. Its `~/.megaCmd` directory is **1.4 GiB**, with a ~1.24 GiB SQLite main DB, ~60 MiB main WAL, and ~4 MiB transfer WAL. These files are actively open. The current daemon and the existing original directory must remain unchanged until a separately approved maintenance window.

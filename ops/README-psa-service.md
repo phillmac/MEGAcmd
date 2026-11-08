@@ -1,6 +1,6 @@
 # MEGAcmd 2.7 PSA mitigation — AlmaLinux 10.2 rootless service
 
-**Status: validated under a real systemd user manager inside a disposable AlmaLinux 10.2 VM with SELinux enforcing. Not installed, started, or enabled on the OVH production jump box.**
+**Production update, 8 November 2026:** the patched **2.7.0** server is now live on the OVH hobby jump box, under rootless Podman with a separate cloned `.megaCmd` state. The [host-path-compatible variant](README-psa-hostpaths.md) is deployed (with home and `/tmp` binds and SELinux container separation intentionally disabled); host-side file transfers, SHA-256 readback backup, account authentication, Library services and boot-time unit generation have passed. The older strictly confined prototype remains a security experiment, **not** the deployed configuration. The historic sections below describe pre-cutover validation and must not be mistaken for live status.
 
 Canonical source: this repository, branch `fix/psa-async-timeout`, based on upstream MEGAcmd `2.7.0_Linux`. The patched binary is validated as a full-media Release build, with Debug-only fault injection absent.
 

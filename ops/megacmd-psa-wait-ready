@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Rootless user-systemd ExecStartPre guard for MEGA-dependent jobs.
+# Only tests the pinned 2.7 container command dispatcher. Never auto-spawns
+# or logs in, relabels, edits sessions, or touches legacy native commands.
+set -euo pipefail
+if [[ "$(id -un)" != almalinux || "$HOME" != /home/almalinux || $# -ne 0 ]]; then
+  echo "MEGA_READY_REFUSED_WRONG_USER_OR_ARGS" >&2
+  exit 50
+fi
+unit=megacmd-psa-confined.service
+name=megacmd-psa-27
+original="$HOME/.megaCmd"
+socket="$original/megacmd.socket"
+target="$HOME/.local/state/megacmd-psa-27/.megaCmd/megacmd.socket"
+for n in $(seq 1 90); do
+  if ! systemctl --user is-active --quiet "$unit"; then
+    echo "MEGA_2_7_UNIT_NOT_ACTIVE" >&2
+    exit 51
+  fi
+  if [[ ! -L "$socket" || "$(readlink "$socket")" != "$target" ]]; then
+    echo "MEGA_2_7_SOCKET_ALIAS_MISSING_OR_UNEXPECTED" >&2
+    exit 52
+  fi
+  # Deliberately check the PROCESS/command rather than an accepting socket:
+  # the 1.24GiB cache may take several minutes to initialize.
+  if ! podman container exists "$name"; then
+    echo "MEGA_2_7_CONTAINER_NOT_PRESENT" >&2
+    exit 53
+  fi
+  if timeout --signal=TERM --kill-after=2s 7s podman exec "$name" \
+      /opt/megacmd-psa-full-release/mega-exec completion version >/dev/null 2>&1; then
+    # Check for a competing native 2.5 daemon before releasing producers.
+    if python3 - <<'PY'
+from pathlib import Path
+import sys
+for p in Path("/proc").iterdir():
+    if not p.name.isdigit():
+        continue
+    try:
+        if (p/"comm").read_text().strip()!="mega-cmd-server":
+            continue
+        status=next(v for v in (p/"status").read_text().splitlines()
+                    if v.startswith("State:"))
+        if status.split(":",1)[1].strip().startswith("Z"):
+            continue
+        if (p/"exe").resolve()==Path("/usr/bin/mega-cmd-server"):
+            sys.exit(1)
+    except (OSError, StopIteration):
+        continue
+PY
+    then
+      echo "MEGA_2_7_DISPATCHER_READY=YES"
+      exit 0
+    fi
+    echo "MEGA_2_5_NATIVE_SERVER_CONFLICT" >&2
+    exit 54
+  fi
+  if ((n % 9 == 0)); then
+    echo "MEGA_2_7_STARTUP_WAIT_POLL=$n"
+  fi
+  sleep 4
+done
+echo "MEGA_2_7_DISPATCHER_UNREADY_AFTER_6_MINUTES" >&2
+exit 55

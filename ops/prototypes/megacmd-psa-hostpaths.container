@@ -1,0 +1,58 @@
+# Deployed hobby jump-box compatibility variant (8 Nov 2026).
+# Install as ~/.config/containers/systemd/megacmd-psa-confined.container
+# to retain the existing unit name / dependency drop-ins. Do not also
+# enable the original ops/prototypes/megacmd-psa-confined.container.
+# The MEGAcmd server opens paths sent by HOST-SIDE client binaries:
+# therefore /home/almalinux and /tmp must match host absolute paths.
+# Rootless Podman retains read-only image, cap-drop, no-new-privileges.
+# SecurityLabelDisable=true reduces SELinux separation but avoids altering
+# the host home, /tmp, or original 2.5.2 cache SELinux labels.
+[Unit]
+Description=MEGAcmd PSA 2.7 — rootless host-path-compatible cloned state
+After=network-online.target
+Wants=network-online.target
+ConditionPathIsDirectory=%h/.local/state/megacmd-psa-27/.megaCmd
+
+[Container]
+Image=localhost/megacmd-psa-alma10-runtime:2.7
+ContainerName=megacmd-psa-27
+Pull=never
+# REQUIRED: an independently verified offline clone of the original
+# 2.5.2 cache, never point a second server at the same writable state.
+# Compatibility with host-side MEGAcmd 2.5 clients: file transfer
+# paths are opened by the server, so host home and /tmp must be visible
+# inside the container under the SAME absolute paths.
+# Labels stay intact; container SELinux separation is disabled (rootless).
+Volume=%h:/home/almalinux:rw
+Volume=/tmp:/tmp:rw
+# Nested versioned state overrides the original ~/.megaCmd in home.
+Volume=%h/.local/state/megacmd-psa-27/.megaCmd:/home/almalinux/.megaCmd:rw
+SecurityLabelDisable=true
+Environment=HOME=/home/almalinux
+WorkingDir=/home/almalinux
+# Host path compatibility requires label separation disabled; no relabel.
+NoNewPrivileges=true
+DropCapability=ALL
+ReadOnly=true
+# /tmp is a host bind mount; do not overlay with a private tmpfs.
+Tmpfs=/run:rw,nosuid,nodev,size=16m
+Memory=4g
+PidsLimit=512
+StopSignal=SIGTERM
+StopTimeout=90
+LogDriver=journald
+# Command-dispatcher readiness, not just socket accept(): completion is
+# explicitly non-autospawning in the pinned MEGAcmd 2.7 client source.
+# Do NOT replace this with ordinary mega-exec version (it forks a daemon).
+HealthCmd=/opt/megacmd-psa-full-release/mega-exec completion version
+HealthInterval=60s
+HealthTimeout=8s
+HealthRetries=3
+HealthStartPeriod=180s
+
+[Service]
+ExecStop=%h/.local/libexec/megacmd-psa-graceful-stop
+Restart=no
+TimeoutStopSec=240s
+
+# Boot enablement is a separate deployed [Install] drop-in under ops/production-dropins.
