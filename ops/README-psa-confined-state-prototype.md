@@ -53,6 +53,25 @@ The trials identified several independent operational hazards, not evidence that
 
 The final attempted live clone was stopped and **2.5.2 restored**, with a verified matching cold snapshot, authenticated listing and all three Library/tunnel/backup producer units active. Its temporary systemd rollback timer was disarmed. Subsequent development and tests must be isolated from production until the above safeguards are implemented and validated.
 
+## Passive health regression, 8 November 2026
+
+The confined Quadlet health command uses a Python standard-library Unix
+socket connection. It deliberately does NOT invoke mega-exec, because the
+client can fork a separate native mega-cmd-server when its socket is absent
+during large-cache startup.
+
+The new test script ops/test-megacmd-psa-passive-health.sh exercises both
+conditions in disposable, network-disabled Podman containers:
+
+- No socket: the health probe fails; the container stays running and no
+  MEGAcmd server is started.
+- Actual patched Release server: the probe succeeds, the client reports
+  version 2.7.0 and a normal exit command shuts the test server down.
+
+No production session/cache is mounted or modified. This test does not
+guarantee that the 1.24 GiB production cache will initialise within the
+health start period. HealthOnFailure is unset and no restart is enabled.
+
 ## Reviewed unit
 
 [`ops/prototypes/megacmd-psa-confined.container`](prototypes/megacmd-psa-confined.container) is intentionally outside the default Quadlet directory and has no [Install] section. It uses the same verified AlmaLinux 10.2 runtime image and helper as the first service, but it mounts a different state directory and **does not disable SELinux**.
