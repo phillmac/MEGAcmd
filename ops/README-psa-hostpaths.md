@@ -1,5 +1,9 @@
 # MEGAcmd 2.7 hobby jump-box host-path cutover
 
+**10 November 2026, ~07:13 AEDT — full host reboot acceptance PASSED.** With the MEGAcmd 2.7 transfer queue empty, Library picker/tunnel/timer and the patched daemon were gracefully stopped and the filesystem synced. The native OS reboot requested from an unprivileged session required polkit authorization, so a single **OVH provider VPS reboot** was issued from the independent .eu management host after clean application shutdown. OVH task `99991592` completed `done`, and the Linux boot ID changed from `44b4ea83-043f-47c1-8b9c-befc50ed401d` to `a0a3209b-2650-4bd6-89c0-b0473a5a4036`.
+
+After startup, systemd user linger and the Quadlet auto-start link worked: one healthy pinned patched 2.7 server (no native 2.5 competitor), `mega-exec completion version` readiness, authenticated production MEGA session, remote root listing and empty transfer queue all passed. The Library picker, tunnel and backup timer automatically started, and the picker's guarded `ExecStartPre` returned status 0 during boot. The previously disabled persistent Desktop Commander user service was enabled beforehand and reconnected automatically. A one-time post-boot Library state-backup run returned `Result=success`, exit 0, including the existing remote SHA-256 readback. The original `~/.megaCmd` socket alias and `user_home_t` label remained intact; approximately 12 GiB was free.
+
 **Current 9 November 2026 recovery state:** The user retired the stale 2.5.2 rollback cache and its remaining cold snapshot, freeing **2,738,847,886 bytes (~2.55 GiB)** of historical data. The original `~/.megaCmd` directory is still preserved as a host-client socket/config shim, containing only `megacmd.cfg` and the `megacmd.socket` symlink pointing to the active versioned 2.7 state. The current 2.7 cache, saved session and remote data were not touched; local dispatcher and authenticated host listing passed afterward. The private `rollback-original.sh` and `ensure-original-and-producers.sh` on the jump box now **refuse** with exit 96. **Never run the old 2.5 rollback sequence below:** the old authenticated SDK state is no longer available. Recovery is now via a fresh 2.7 cache rebuild, reauthentication and journal reconciliation.
 
 
@@ -52,7 +56,7 @@ Podman Quadlet generator creates `default.target.wants/megacmd-psa-confined.serv
 
 The existing picker and backup services have separate versioned systemd drop-ins under [`production-dropins/`](production-dropins/) requiring/ordering after `megacmd-psa-confined.service`. Their `ExecStartPre` invokes [`megacmd-psa-wait-ready`](megacmd-psa-wait-ready), a bounded, **non-autospawning** client completion check (rather than an accepting Unix socket). The helper also refuses an unexpected socket alias or competing original 2.5.2 server. The tunnel already depends on the picker.
 
-On 8 November, the Quadlet startup symlink, `Linger=yes`, generated dependency properties and a live picker restart were verified. **A full host reboot has not been used for acceptance testing.** Avoid automatic restart loops while the old 2.5.2 binary remains available as a manual rollback.
+On 8 November, the Quadlet startup symlink, `Linger=yes`, generated dependency properties and a live picker restart were verified. **The full host reboot acceptance test passed on 10 November 2026; see the status at the top of this runbook.** Avoid automatic restart loops while the old 2.5.2 binary remains available as a manual rollback.
 
 ## Recovery after the obsolete 2.5 rollback was retired
 
